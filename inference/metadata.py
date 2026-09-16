@@ -1,55 +1,27 @@
 ﻿from pathlib import Path
-from PIL import Image, ExifTags
+from PIL import Image
 
 
-def _format_camera(make, model):
-    parts = []
+def _get_aspect_ratio(width, height):
+    """Return simplified image aspect ratio."""
 
-    if make:
-        parts.append(str(make).strip())
+    if not width or not height:
+        return "Unknown"
 
-    if model:
-        model = str(model).strip()
+    def gcd(a, b):
+        while b:
+            a, b = b, a % b
+        return a
 
-        # Avoid duplicate manufacturer name
-        if not make or model.lower() not in str(make).lower():
-            parts.append(model)
+    divisor = gcd(width, height)
 
-    return " ".join(parts) if parts else "Not Available"
-
-
-def _format_orientation(value):
-    orientation_map = {
-        1: "Normal",
-        2: "Mirrored horizontally",
-        3: "Rotated 180°",
-        4: "Mirrored vertically",
-        5: "Mirrored + rotated 270Â°",
-        6: "Rotated 90Â°",
-        7: "Mirrored + rotated 90Â°",
-        8: "Rotated 270Â°",
-    }
-
-    return orientation_map.get(value, str(value))
-
-
-def _format_color_space(value):
-    if value == 1:
-        return "sRGB"
-
-    if value == 2:
-        return "Adobe RGB"
-
-    if value is not None:
-        return str(value)
-
-    return "Unknown"
+    return f"{width // divisor}:{height // divisor}"
 
 
 def _get_bit_depth(image):
     """
-    Return a human-readable bit-depth description.
-    This is based on the image mode and format information.
+    Return a human-readable bit-depth description
+    based on the image mode and available metadata.
     """
 
     bits = image.info.get("bits")
@@ -61,7 +33,9 @@ def _get_bit_depth(image):
 
             if channels > 1:
                 return f"{bits}-bit/channel"
+
             return f"{bits}-bit"
+
         except (TypeError, ValueError):
             pass
 
@@ -83,6 +57,8 @@ def _get_bit_depth(image):
 
 
 def _get_compression(image):
+    """Return a human-readable compression description."""
+
     image_format = (image.format or "").upper()
 
     if image_format == "JPEG":
@@ -92,7 +68,6 @@ def _get_compression(image):
         return "PNG (lossless)"
 
     if image_format == "WEBP":
-        # PIL exposes whether WEBP is lossless through this info field
         if image.info.get("lossless") is True:
             return "WEBP (lossless)"
 
@@ -111,94 +86,103 @@ def _get_compression(image):
 
 def extract_metadata(image_path, original_filename=None):
     """
-    Extract forensic metadata from an image.
+    Extract technical and forensic metadata from an image.
 
     Metadata is informational evidence only.
-    It does NOT determine whether an image is real or AI-generated.
+    It does NOT determine whether an image is real,
+    AI-generated, or manipulated.
     """
 
     path = Path(image_path)
 
     metadata = {
         "filename": original_filename or path.name,
-        "file_type": "Unknown",
-        "file_size": round(path.stat().st_size / (1024 * 1024), 2),
+
+        "file_format": "Unknown",
+
+        "file_size": round(
+            path.stat().st_size / (1024 * 1024),
+            2
+        ),
+
         "width": None,
         "height": None,
-        "camera": "Not Available",
-        "software": "Not Available",
-        "date_taken": "Not Available",
-        "gps": "Not Available",
-        "color_space": "Unknown",
-        "orientation": "Unknown",
+
+        "aspect_ratio": "Unknown",
+
+        "color_mode": "Unknown",
+
+        "channels": None,
+
         "compression": "Unknown",
+
         "bit_depth": "Unknown",
+
         "exif_present": False,
+
         "metadata_status": "No EXIF metadata found",
     }
 
     try:
+
         with Image.open(image_path) as image:
 
-            metadata["file_type"] = image.format or "Unknown"
+            # -------------------------------------------------
+            # Basic file information
+            # -------------------------------------------------
+
+            metadata["file_format"] = image.format or "Unknown"
+
             metadata["width"] = image.width
             metadata["height"] = image.height
 
+            # -------------------------------------------------
+            # Aspect ratio
+            # -------------------------------------------------
+
+            metadata["aspect_ratio"] = _get_aspect_ratio(
+                image.width,
+                image.height
+            )
+
+            # -------------------------------------------------
+            # Color information
+            # -------------------------------------------------
+
+            metadata["color_mode"] = image.mode
+
+            metadata["channels"] = len(image.getbands())
+
+            # -------------------------------------------------
+            # Compression
+            # -------------------------------------------------
+
             metadata["compression"] = _get_compression(image)
+
+            # -------------------------------------------------
+            # Bit depth
+            # -------------------------------------------------
+
             metadata["bit_depth"] = _get_bit_depth(image)
+
+            # -------------------------------------------------
+            # EXIF information
+            # -------------------------------------------------
 
             exif = image.getexif()
 
-            if not exif:
-                return metadata
+            if exif:
 
-            metadata["exif_present"] = True
-            metadata["metadata_status"] = "EXIF metadata detected"
+                metadata["exif_present"] = True
+                metadata["metadata_status"] = "EXIF metadata detected"
 
-            exif_data = {}
+            else:
 
-            for tag_id, value in exif.items():
-                tag_name = ExifTags.TAGS.get(tag_id, tag_id)
-                exif_data[tag_name] = value
-
-            # Camera
-            metadata["camera"] = _format_camera(
-                exif_data.get("Make"),
-                exif_data.get("Model")
-            )
-
-            # Editing/software information
-            software = exif_data.get("Software")
-
-            if software:
-                metadata["software"] = str(software).strip()
-
-            # Capture date
-            date_taken = (
-                exif_data.get("DateTimeOriginal")
-                or exif_data.get("DateTimeDigitized")
-                or exif_data.get("DateTime")
-            )
-
-            if date_taken:
-                metadata["date_taken"] = str(date_taken)
-
-            # GPS
-            if exif_data.get("GPSInfo"):
-                metadata["gps"] = "Available"
-
-            # Color space
-            metadata["color_space"] = _format_color_space(
-                exif_data.get("ColorSpace")
-            )
-
-            # Orientation
-            orientation = exif_data.get("Orientation")
-
-            if orientation is not None:
-                metadata["orientation"] = _format_orientation(orientation)
+                metadata["exif_present"] = False
+                metadata["metadata_status"] = "No EXIF metadata found"
 
     except Exception as e:
+
         metadata["metadata_status"] = "Metadata extraction failed"
         metadata["error"] = str(e)
 

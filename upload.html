@@ -265,10 +265,15 @@
     .reasonList li i { color:var(--primary); margin-top:3px; }
 
     /* Metadata Panel */
-    .metaGrid { display:grid; grid-template-columns:repeat(auto-fit,minmax(250px,1fr)); gap:18px; }
-    .metaItem { background:var(--card); border:1px solid var(--border); padding:20px; border-radius:4px; }
+    .metadataStatus { margin-bottom:20px; padding:14px 18px; border:1px solid var(--border); border-radius:4px; background:rgba(92,139,129,.06); color:var(--muted); font-size:13px; line-height:1.6; }
+    .metadataStatus.available { border-color:rgba(92,139,129,.30); color:var(--secondary); background:rgba(92,139,129,.08); }
+    .metadataStatus.unavailable { border-color:rgba(184,134,63,.25); color:var(--warning); background:rgba(184,134,63,.07); }
+    .metaGrid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:18px; }
+    .metaItem { background:var(--card); border:1px solid var(--border); padding:20px; border-radius:4px; min-height:112px; }
     .metaItem h4 { font-family:'IBM Plex Mono'; font-size:11px; letter-spacing:2px; color:var(--muted); margin-bottom:12px; text-transform:uppercase; }
-    .metaItem p { font-size:15px; line-height:1.8; word-break:break-word; }
+    .metaItem p { font-size:15px; line-height:1.6; word-break:break-word; font-weight:600; }
+    .metadataNote { margin-top:20px; padding:16px 18px; border-left:3px solid var(--secondary); background:rgba(92,139,129,.06); color:var(--muted); font-size:13px; line-height:1.7; }
+    @media (max-width:1000px) { .metaGrid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 
     /* Heatmap Comparison */
     .compareBox { position:relative; width:100%; height:500px; overflow:hidden; border-radius:4px; background:#0d0d0d; }
@@ -558,17 +563,23 @@
           <!-- METADATA TAB -->
           <div class="tabContent" id="metadata">
             <div class="metadataStatus" id="metadataStatus">
-                Metadata not analyzed
+              Metadata not analyzed
             </div>
+
             <div class="metaGrid">
-              <div class="metaItem"><h4>Camera</h4><p id="metaCamera">Not Available</p></div>
-              <div class="metaItem"><h4>Software</h4><p id="metaSoftware">Not Available</p></div>
-              <div class="metaItem"><h4>Date Taken</h4><p id="metaDate">Not Available</p></div>
-              <div class="metaItem"><h4>GPS</h4><p id="metaGPS">Not Available</p></div>
-              <div class="metaItem"><h4>Color Space</h4><p id="metaColor">Unknown</p></div>
-              <div class="metaItem"><h4>Orientation</h4><p id="metaOrientation">Unknown</p></div>
-              <div class="metaItem"><h4>Compression</h4><p id="metaCompression">Unknown</p></div>
-              <div class="metaItem"><h4>Bit Depth</h4><p id="metaBitDepth">Unknown</p></div>
+              <div class="metaItem"><h4>Image Dimensions</h4><p id="metaDimensions">—</p></div>
+              <div class="metaItem"><h4>File Size</h4><p id="metaFileSize">—</p></div>
+              <div class="metaItem"><h4>File Format</h4><p id="metaFormat">—</p></div>
+              <div class="metaItem"><h4>Aspect Ratio</h4><p id="metaAspectRatio">—</p></div>
+              <div class="metaItem"><h4>Color Mode</h4><p id="metaColorMode">—</p></div>
+              <div class="metaItem"><h4>Channels</h4><p id="metaChannels">—</p></div>
+              <div class="metaItem"><h4>Compression</h4><p id="metaCompression">—</p></div>
+              <div class="metaItem"><h4>Bit Depth</h4><p id="metaBitDepth">—</p></div>
+              <div class="metaItem"><h4>EXIF Status</h4><p id="metaExifStatus">—</p></div>
+            </div>
+
+            <div class="metadataNote" id="metadataNote">
+              Metadata information is extracted from the uploaded image. Missing EXIF metadata does not by itself indicate image manipulation or AI generation.
             </div>
           </div>
 
@@ -620,7 +631,6 @@
     © 2026 Trustify AI • VERIFY • EXPLAIN • TRUST
   </footer>
 
-  <script src="https://cdn.jsdelivr.net/npm/exif-js"></script>
   <script>
   /* backend config: swap API_BASE_URL and set DEMO_MODE false once /api/analyze is live */
   const CONFIG = {
@@ -968,7 +978,6 @@
       }
     };
 
-    readEXIF(file);
     showToast("Evidence loaded successfully.");
   }
 
@@ -1009,13 +1018,6 @@
       document.getElementById(btn.dataset.tab).classList.add("active");
     };
   });
-
-  /* EXIF READER */
- function readEXIF(file) {
-  // Metadata is extracted by the Flask backend after analysis.
-  // This function is kept only to avoid breaking the existing upload flow.
-  // The actual metadata values are populated by renderMetadata().
-}
 
   /* RGB HISTOGRAM */
   function drawHistogram(image) {
@@ -1184,44 +1186,56 @@
 
   document.getElementById("analyzeBtnTab").onclick = startAnalysis;
   function renderMetadata(metadata) {
-  if (!metadata) {
-    return;
+    if (!metadata) return;
+
+    const statusElement = document.getElementById("metadataStatus");
+    const noteElement = document.getElementById("metadataNote");
+
+    if (metadata.exif_present) {
+      statusElement.textContent = "EXIF metadata detected";
+      statusElement.className = "metadataStatus available";
+    } else {
+      statusElement.textContent = "No EXIF metadata found";
+      statusElement.className = "metadataStatus unavailable";
+    }
+
+    document.getElementById("metaDimensions").textContent =
+      metadata.width && metadata.height
+        ? metadata.width + " × " + metadata.height
+        : "Unknown";
+
+    document.getElementById("metaFileSize").textContent =
+      metadata.file_size !== undefined && metadata.file_size !== null
+        ? metadata.file_size + " MB"
+        : "Unknown";
+
+    document.getElementById("metaFormat").textContent =
+      metadata.file_format || "Unknown";
+
+    document.getElementById("metaAspectRatio").textContent =
+      metadata.aspect_ratio || "Unknown";
+
+    document.getElementById("metaColorMode").textContent =
+      metadata.color_mode || "Unknown";
+
+    document.getElementById("metaChannels").textContent =
+      metadata.channels !== undefined && metadata.channels !== null
+        ? metadata.channels
+        : "Unknown";
+
+    document.getElementById("metaCompression").textContent =
+      metadata.compression || "Unknown";
+
+    document.getElementById("metaBitDepth").textContent =
+      metadata.bit_depth || "Unknown";
+
+    document.getElementById("metaExifStatus").textContent =
+      metadata.exif_present ? "Present" : "Not Present";
+
+    noteElement.textContent = metadata.metadata_status
+      ? metadata.metadata_status + ". Metadata absence does not by itself indicate image manipulation or AI generation."
+      : "Metadata information is extracted from the uploaded image.";
   }
-
-  const statusElement = document.getElementById("metadataStatus");
-
-  if (metadata.exif_present) {
-    statusElement.textContent = "EXIF metadata detected";
-    statusElement.className = "metadataStatus available";
-  } else {
-    statusElement.textContent = "No EXIF metadata found";
-    statusElement.className = "metadataStatus unavailable";
-  }
-
-  document.getElementById("metaCamera").textContent =
-    metadata.camera || "Not Available";
-
-  document.getElementById("metaSoftware").textContent =
-    metadata.software || "Not Available";
-
-  document.getElementById("metaDate").textContent =
-    metadata.date_taken || "Not Available";
-
-  document.getElementById("metaGPS").textContent =
-    metadata.gps || "Not Available";
-
-  document.getElementById("metaColor").textContent =
-    metadata.color_space || "Unknown";
-
-  document.getElementById("metaOrientation").textContent =
-    metadata.orientation || "Unknown";
-
-  document.getElementById("metaCompression").textContent =
-    metadata.compression || "Unknown";
-
-  document.getElementById("metaBitDepth").textContent =
-    metadata.bit_depth || "Unknown";
-}
 
   /* RENDER RESULTS */
   function renderResult(result) {
@@ -1370,6 +1384,20 @@
     document.getElementById("reportClassification").textContent = "—";
     document.getElementById("reportConfidence").textContent = "—";
     document.getElementById("reportTrust").textContent = "—";
+
+    document.getElementById("metadataStatus").textContent = "Metadata not analyzed";
+    document.getElementById("metadataStatus").className = "metadataStatus";
+    document.getElementById("metadataNote").textContent = "Metadata information is extracted from the uploaded image. Missing EXIF metadata does not by itself indicate image manipulation or AI generation.";
+    document.getElementById("metaDimensions").textContent = "—";
+    document.getElementById("metaFileSize").textContent = "—";
+    document.getElementById("metaFormat").textContent = "—";
+    document.getElementById("metaAspectRatio").textContent = "—";
+    document.getElementById("metaColorMode").textContent = "—";
+    document.getElementById("metaChannels").textContent = "—";
+    document.getElementById("metaCompression").textContent = "—";
+    document.getElementById("metaBitDepth").textContent = "—";
+    document.getElementById("metaExifStatus").textContent = "—";
+
     gauge.style.strokeDashoffset = CIRCLE_LENGTH;
     resetConfidenceBreakdown();
     document.getElementById("forensicLog").classList.remove("show");
@@ -1479,16 +1507,22 @@
       breakdown[label] = value;
     });
 
-    const metadata = {
-      camera: document.getElementById("metaCamera").textContent,
-      software: document.getElementById("metaSoftware").textContent,
-      date_taken: document.getElementById("metaDate").textContent,
-      gps: document.getElementById("metaGPS").textContent,
-      color_space: document.getElementById("metaColor").textContent,
-      orientation: document.getElementById("metaOrientation").textContent,
-      compression: document.getElementById("metaCompression").textContent,
-      bit_depth: document.getElementById("metaBitDepth").textContent
-    };
+    const metadata = lastResult && lastResult.metadata
+      ? lastResult.metadata
+      : {
+          filename: document.getElementById("fileName").textContent,
+          file_format: document.getElementById("metaFormat").textContent,
+          file_size: document.getElementById("metaFileSize").textContent,
+          width: null,
+          height: null,
+          aspect_ratio: document.getElementById("metaAspectRatio").textContent,
+          color_mode: document.getElementById("metaColorMode").textContent,
+          channels: document.getElementById("metaChannels").textContent,
+          compression: document.getElementById("metaCompression").textContent,
+          bit_depth: document.getElementById("metaBitDepth").textContent,
+          exif_present: document.getElementById("metaExifStatus").textContent === "Present",
+          metadata_status: document.getElementById("metadataStatus").textContent
+        };
 
     const report = {
       filename: document.getElementById("fileName").textContent,
